@@ -1,7 +1,6 @@
-#![feature(proc_macro_span)]
+#![cfg_attr(feature = "nightly", feature(proc_macro_span))]
 
 use image::DynamicImage;
-use proc_macro::Span;
 use proc_macro2::TokenStream;
 use quote::quote;
 use strum::EnumString;
@@ -10,23 +9,43 @@ use syn::{parse::Parse, Ident, LitStr, Token};
 /// Includes pixel data from an image file.
 ///
 /// Optionally the image can be converted into a format specified by the 2nd parameter.
-/// Supported formats are RGB8, RGBA8, RGB16, RGBA16, RGB32F, RGBA32F, Luma8, LumaAlpha8, Luma16 and LumaAlpha16.
-/// Format names are case insensitive and may be shortened, for example `la8` works  for LumaAlpha8.
+/// Supported conversion formats are RGB8, RGBA8, RGB16, RGBA16, RGB32F, RGBA32F, Luma8, LumaAlpha8, Luma16 and LumaAlpha16.
+/// Format names are case insensitive and may be shortened, for example `la8` works for LumaAlpha8.
+///
+/// By default the path needs to be specified from your `Cargo.toml` file.
+/// Enabling the `nightly` feature and compiling on nightly allows paths relative to the current source file.
 ///
 /// # Examples
 /// ```ignore
 /// use include_img::include_img;
 ///
-/// const IMAGE_RGB8: &[u8] = &include_img!("./my_image.png", rgb8);
-/// const IMAGE_RGBA32F: &[f32] = &include_img!("./my_image.png", rgba32f);
+/// const IMAGE_RGB8: &[u8] = &include_img!("./src/assets/my_image.png", rgb8);
+/// const IMAGE_RGBA32F: &[f32] = &include_img!("./src/assets/my_image.png", rgba32f);
 /// ```
 #[proc_macro]
 pub fn include_img(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = syn::parse_macro_input!(input as Input);
 
     let path = input.path.value();
-    let source_file = Span::call_site().source_file();
-    let full_path = source_file.path().parent().unwrap().join(&path);
+
+    let full_path = {
+        #[cfg(feature = "nightly")]
+        {
+            let source_file = proc_macro::Span::call_site().source_file();
+            if source_file.is_real() {
+                source_file
+                    .path()
+                    .parent()
+                    .expect("source file did not yield parent path")
+                    .join(&path)
+            } else {
+                path.as_str().into()
+            }
+        }
+
+        #[cfg(not(feature = "nightly"))]
+        path.as_str()
+    };
 
     match image::open(full_path) {
         Ok(img) => match input.format {
